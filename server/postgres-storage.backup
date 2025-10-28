@@ -1,0 +1,439 @@
+import { db } from "../db";
+import { 
+  users, articles, categories, tags, 
+  ads, adRequests, newsletters 
+} from "@shared/schema";
+import { eq, desc, and, or, like, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { hashPassword } from "./password-utils";
+import type { IStorage } from "./storage";
+import type {
+  User, InsertUser,
+  Category, InsertCategory,
+  Article, InsertArticle, ArticleWithRelations,
+  Media, InsertMedia,
+  Ad, InsertAd,
+  Stream, InsertStream,
+  AuditLog, InsertAuditLog,
+} from "@shared/types";
+import type { Newsletter, InsertNewsletter, Tag, InsertTag, AdRequest, InsertAdRequest } from "@shared/schema";
+
+export class PostgreSQLStorage implements IStorage {
+  // ============ Users ============
+  async getUser(id: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return result[0] as User | undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    return result[0] as User | undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const hashedPassword = await hashPassword(insertUser.password);
+    
+    const newUser = {
+      id,
+      email: insertUser.email,
+      password: hashedPassword,
+      name: insertUser.name,
+      role: insertUser.role || 'viewer',
+      status: insertUser.status || 'active',
+      jobTitle: insertUser.jobTitle || null,
+      department: insertUser.department || null,
+      profileImage: insertUser.profileImage || null,
+      bio: insertUser.bio || null,
+      phone: (insertUser as any).phone || null,
+      socialLinks: (insertUser as any).socialLinks || null,
+      lastLogin: null,
+      lastIP: null,
+      loginCount: 0,
+      lastActivity: null,
+      twoFactorEnabled: null,
+      twoFactorSecret: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await db.insert(users).values(newUser).returning();
+    return result[0] as User;
+  }
+
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<User | undefined> {
+    if (updates.password) {
+      updates.password = await hashPassword(updates.password);
+    }
+
+    const updateData = {
+      ...updates,
+      updatedAt: new Date(),
+    };
+
+    const result = await db
+      .update(users)
+      .set(updateData)
+      .where(eq(users.id, id))
+      .returning();
+    
+    return result[0] as User | undefined;
+  }
+
+  async updateUserLoginInfo(id: string, loginInfo: { lastLogin: string; lastIP: string; loginCount: number }): Promise<User | undefined> {
+    const result = await db
+      .update(users)
+      .set({
+        lastLogin: new Date(loginInfo.lastLogin),
+        lastIP: loginInfo.lastIP,
+        loginCount: loginInfo.loginCount,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    
+    return result[0] as User | undefined;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    const result = await db.select().from(users).orderBy(desc(users.createdAt));
+    return result as User[];
+  }
+
+  // ============ Categories ============
+  async getCategory(id: string): Promise<Category | undefined> {
+    const result = await db.select().from(categories).where(eq(categories.id, id)).limit(1);
+    return result[0] as Category | undefined;
+  }
+
+  async getCategoryBySlug(slug: string): Promise<Category | undefined> {
+    const result = await db.select().from(categories).where(eq(categories.slug, slug)).limit(1);
+    return result[0] as Category | undefined;
+  }
+
+  async createCategory(insertCategory: InsertCategory): Promise<Category> {
+    const id = randomUUID();
+    const newCategory = {
+      id,
+      ...insertCategory,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await db.insert(categories).values(newCategory).returning();
+    return result[0] as Category;
+  }
+
+  async updateCategory(id: string, updates: Partial<InsertCategory>): Promise<Category | undefined> {
+    const result = await db
+      .update(categories)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(categories.id, id))
+      .returning();
+    
+    return result[0] as Category | undefined;
+  }
+
+  async deleteCategory(id: string): Promise<boolean> {
+    const result = await db.delete(categories).where(eq(categories.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getAllCategories(): Promise<Category[]> {
+    const result = await db.select().from(categories).orderBy(categories.nameAr);
+    return result as Category[];
+  }
+
+  // ============ Articles ============
+  async getArticle(id: string): Promise<Article | undefined> {
+    const result = await db.select().from(articles).where(eq(articles.id, id)).limit(1);
+    return result[0] as Article | undefined;
+  }
+
+  async getArticleBySlug(slug: string): Promise<ArticleWithRelations | undefined> {
+    const article = await db.select().from(articles).where(eq(articles.slug, slug)).limit(1);
+    if (!article[0]) return undefined;
+
+    const category = await db.select().from(categories).where(eq(categories.id, article[0].categoryId)).limit(1);
+    const author = await db.select().from(users).where(eq(users.id, article[0].authorId)).limit(1);
+
+    return {
+      ...article[0],
+      category: category[0]!,
+      author: author[0]!,
+    } as ArticleWithRelations;
+  }
+
+  async createArticle(insertArticle: InsertArticle): Promise<Article> {
+    const id = randomUUID();
+    const newArticle = {
+      id,
+      ...insertArticle,
+      views: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await db.insert(articles).values(newArticle).returning();
+    return result[0] as Article;
+  }
+
+  async updateArticle(id: string, updates: Partial<InsertArticle>): Promise<Article | undefined> {
+    const result = await db
+      .update(articles)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(articles.id, id))
+      .returning();
+    
+    return result[0] as Article | undefined;
+  }
+
+  async deleteArticle(id: string): Promise<boolean> {
+    const result = await db.delete(articles).where(eq(articles.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getAllArticles(): Promise<ArticleWithRelations[]> {
+    const allArticles = await db.select().from(articles).orderBy(desc(articles.createdAt));
+    
+    const articlesWithRelations = await Promise.all(
+      allArticles.map(async (article: any) => {
+        const category = await db.select().from(categories).where(eq(categories.id, article.categoryId)).limit(1);
+        const author = await db.select().from(users).where(eq(users.id, article.authorId)).limit(1);
+        
+        return {
+          ...article,
+          category: category[0]!,
+          author: author[0]!,
+        } as ArticleWithRelations;
+      })
+    );
+    
+    return articlesWithRelations;
+  }
+
+  async getArticlesWithRelations(): Promise<ArticleWithRelations[]> {
+    return this.getAllArticles();
+  }
+
+  async incrementArticleViews(id: string): Promise<void> {
+    await db
+      .update(articles)
+      .set({ views: sql`${articles.views} + 1` })
+      .where(eq(articles.id, id));
+  }
+
+  // ============ Ads ============
+  async createAd(insertAd: InsertAd): Promise<Ad> {
+    const id = randomUUID();
+    const newAd = {
+      id,
+      ...insertAd,
+      impressions: 0,
+      clicks: 0,
+      conversions: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const result = await db.insert(ads).values(newAd).returning();
+    return result[0] as Ad;
+  }
+
+  async getAllAds(): Promise<Ad[]> {
+    const result = await db.select().from(ads).orderBy(desc(ads.createdAt));
+    return result as Ad[];
+  }
+
+  async getAd(id: string): Promise<Ad | undefined> {
+    const result = await db.select().from(ads).where(eq(ads.id, id)).limit(1);
+    return result[0] as Ad | undefined;
+  }
+
+  async updateAd(id: string, updates: Partial<InsertAd>): Promise<Ad | undefined> {
+    const result = await db
+      .update(ads)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(ads.id, id))
+      .returning();
+    
+    return result[0] as Ad | undefined;
+  }
+
+  async deleteAd(id: string): Promise<boolean> {
+    const result = await db.delete(ads).where(eq(ads.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getActiveAdByPlacement(placement: string): Promise<Ad | undefined> {
+    const allAds = await db.select().from(ads);
+    const now = new Date();
+    
+    const activeAd = allAds.find((ad: any) => {
+      if (ad.placement !== placement) return false;
+      if (!ad.startDate || new Date(ad.startDate) <= now) {
+        if (!ad.endDate || new Date(ad.endDate) >= now) {
+          return true;
+        }
+      }
+      return false;
+    });
+    
+    return activeAd as Ad | undefined;
+  }
+
+  async incrementAdImpressions(id: string): Promise<void> {
+    await db
+      .update(ads)
+      .set({ impressions: sql`${ads.impressions} + 1` })
+      .where(eq(ads.id, id));
+  }
+
+  async incrementAdClicks(id: string): Promise<void> {
+    await db
+      .update(ads)
+      .set({ clicks: sql`${ads.clicks} + 1` })
+      .where(eq(ads.id, id));
+  }
+
+  // ============ Ad Requests ============
+  async createAdRequest(insertAdRequest: InsertAdRequest): Promise<AdRequest> {
+    const id = randomUUID();
+    const newAdRequest = {
+      id,
+      ...insertAdRequest,
+      status: 'pending',
+      createdAt: new Date(),
+    };
+
+    const result = await db.insert(adRequests).values(newAdRequest).returning();
+    return result[0] as AdRequest;
+  }
+
+  async getAllAdRequests(): Promise<AdRequest[]> {
+    const result = await db.select().from(adRequests).orderBy(desc(adRequests.createdAt));
+    return result as AdRequest[];
+  }
+
+  async getAdRequest(id: string): Promise<AdRequest | undefined> {
+    const result = await db.select().from(adRequests).where(eq(adRequests.id, id)).limit(1);
+    return result[0] as AdRequest | undefined;
+  }
+
+  async updateAdRequest(id: string, updates: Partial<AdRequest>): Promise<AdRequest | undefined> {
+    const result = await db
+      .update(adRequests)
+      .set(updates)
+      .where(eq(adRequests.id, id))
+      .returning();
+    
+    return result[0] as AdRequest | undefined;
+  }
+
+  async deleteAdRequest(id: string): Promise<boolean> {
+    const result = await db.delete(adRequests).where(eq(adRequests.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // ============ Newsletters ============
+  async createNewsletterSubscription(insertNewsletter: InsertNewsletter): Promise<Newsletter> {
+    const id = randomUUID();
+    const newNewsletter = {
+      id,
+      ...insertNewsletter,
+      subscribedAt: new Date(),
+    };
+
+    const result = await db.insert(newsletters).values(newNewsletter).returning();
+    return result[0] as Newsletter;
+  }
+
+  async getAllNewsletters(): Promise<Newsletter[]> {
+    const result = await db.select().from(newsletters).orderBy(desc(newsletters.subscribedAt));
+    return result as Newsletter[];
+  }
+
+  // ============ Stub Methods (Not Implemented Yet) ============
+  async getMedia(id: string): Promise<Media | undefined> {
+    return undefined;
+  }
+
+  async createMedia(media: InsertMedia): Promise<Media> {
+    throw new Error("Not implemented");
+  }
+
+  async deleteMedia(id: string): Promise<boolean> {
+    return false;
+  }
+
+  async getAllMedia(): Promise<Media[]> {
+    return [];
+  }
+
+  async getStream(id: string): Promise<Stream | undefined> {
+    return undefined;
+  }
+
+  async createStream(stream: InsertStream): Promise<Stream> {
+    throw new Error("Not implemented");
+  }
+
+  async updateStream(id: string, updates: Partial<InsertStream>): Promise<Stream | undefined> {
+    return undefined;
+  }
+
+  async deleteStream(id: string): Promise<boolean> {
+    return false;
+  }
+
+  async getAllStreams(): Promise<Stream[]> {
+    return [];
+  }
+
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    throw new Error("Not implemented");
+  }
+
+  async getAuditLogs(): Promise<AuditLog[]> {
+    return [];
+  }
+
+  async getTag(id: string): Promise<Tag | undefined> {
+    return undefined;
+  }
+
+  async getTagByName(name: string): Promise<Tag | undefined> {
+    return undefined;
+  }
+
+  async getTagBySlug(slug: string): Promise<Tag | undefined> {
+    return undefined;
+  }
+
+  async createTag(tag: InsertTag): Promise<Tag> {
+    throw new Error("Not implemented");
+  }
+
+  async getAllTags(): Promise<Tag[]> {
+    return [];
+  }
+
+  async getActiveStream(): Promise<Stream | undefined> {
+    return undefined;
+  }
+
+  async getAdRequests(): Promise<AdRequest[]> {
+    return this.getAllAdRequests();
+  }
+
+  async updateAdRequestStatus(id: string, status: string): Promise<AdRequest | undefined> {
+    return this.updateAdRequest(id, { status: status as any });
+  }
+}
+
+export const postgresStorage = new PostgreSQLStorage();
