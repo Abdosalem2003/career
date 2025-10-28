@@ -1,153 +1,170 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Camera, X, Upload } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { Camera, X, Upload, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ProfileImageUploaderProps {
   currentImage?: string;
-  userName?: string;
+  userName: string;
   onImageChange: (base64: string) => void;
+  size?: "sm" | "md" | "lg";
+  className?: string;
 }
 
-export function ProfileImageUploader({ 
-  currentImage, 
-  userName, 
-  onImageChange 
+export function ProfileImageUploader({
+  currentImage,
+  userName,
+  onImageChange,
+  size = "md",
+  className,
 }: ProfileImageUploaderProps) {
-  const [preview, setPreview] = useState<string>(currentImage || "");
-  const [uploading, setUploading] = useState(false);
-  const { toast } = useToast();
+  const [preview, setPreview] = useState<string | null>(currentImage || null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const sizeClasses = {
+    sm: "h-20 w-20",
+    md: "h-32 w-32",
+    lg: "h-40 w-40",
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // التحقق من نوع الملف
-    if (!file.type.startsWith('image/')) {
-      toast({
-        title: "خطأ",
-        description: "يرجى اختيار صورة فقط (JPG, PNG, GIF)",
-        variant: "destructive",
-      });
+    // Reset error
+    setError(null);
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      setError("الملف يجب أن يكون صورة");
       return;
     }
 
-    // التحقق من حجم الملف (5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "خطأ",
-        description: "حجم الصورة يجب أن يكون أقل من 5MB",
-        variant: "destructive",
-      });
+    // Validate file size (5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setError("حجم الصورة يجب أن يكون أقل من 5MB");
       return;
     }
 
-    setUploading(true);
+    setIsLoading(true);
 
     try {
-      // تحويل إلى Base64
+      // Convert to base64
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64 = reader.result as string;
+        console.log('[ProfileImageUploader] Image converted to base64, length:', base64.length);
         setPreview(base64);
         onImageChange(base64);
-        
-        toast({
-          title: "✓ تم",
-          description: "تم اختيار الصورة بنجاح. احفظ التغييرات لتطبيقها.",
-        });
-        setUploading(false);
+        console.log('[ProfileImageUploader] onImageChange called');
+        setIsLoading(false);
       };
-      
       reader.onerror = () => {
-        toast({
-          title: "خطأ",
-          description: "فشل قراءة الصورة",
-          variant: "destructive",
-        });
-        setUploading(false);
+        setError("فشل قراءة الملف");
+        setIsLoading(false);
       };
-      
       reader.readAsDataURL(file);
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل تحميل الصورة",
-        variant: "destructive",
-      });
-      setUploading(false);
+    } catch (err) {
+      setError("حدث خطأ أثناء رفع الصورة");
+      setIsLoading(false);
     }
   };
 
-  const removeImage = () => {
-    setPreview("");
+  const handleRemove = () => {
+    setPreview(null);
     onImageChange("");
-    toast({
-      title: "تم",
-      description: "تم إزالة الصورة",
-    });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleClick = () => {
+    fileInputRef.current?.click();
   };
 
   return (
-    <div className="flex flex-col items-center gap-4 p-6 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950 dark:to-purple-950 rounded-2xl border-2 border-blue-200 dark:border-blue-800">
+    <div className={cn("flex flex-col items-center gap-4", className)}>
+      {/* Avatar with Upload Button */}
       <div className="relative group">
-        <Avatar className="h-32 w-32 ring-4 ring-blue-200 dark:ring-blue-800 shadow-xl transition-all group-hover:ring-blue-400">
-          <AvatarImage src={preview} className="object-cover" />
-          <AvatarFallback className="text-4xl bg-gradient-to-br from-blue-500 to-purple-500 text-white font-bold">
-            {userName?.charAt(0).toUpperCase() || "U"}
-          </AvatarFallback>
+        <Avatar className={cn(sizeClasses[size], "border-4 border-white shadow-xl transition-all")}>
+          {preview ? (
+            <AvatarImage src={preview} alt={userName} className="object-cover" />
+          ) : (
+            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-500 text-white text-4xl font-bold">
+              {userName.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          )}
         </Avatar>
-        
-        {preview && (
-          <Button
-            type="button"
-            size="icon"
-            variant="destructive"
-            className="absolute -top-2 -right-2 h-8 w-8 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={removeImage}
+
+        {/* Upload Overlay */}
+        <div
+          onClick={handleClick}
+          className="absolute inset-0 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer flex items-center justify-center"
+        >
+          {isLoading ? (
+            <Loader2 className="h-8 w-8 text-white animate-spin" />
+          ) : (
+            <Camera className="h-8 w-8 text-white" />
+          )}
+        </div>
+
+        {/* Remove Button */}
+        {preview && !isLoading && (
+          <button
+            onClick={handleRemove}
+            className="absolute -top-2 -right-2 h-8 w-8 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-lg transition-colors"
           >
             <X className="h-4 w-4" />
-          </Button>
+          </button>
         )}
-        
-        <div className="absolute -bottom-2 -right-2 bg-blue-500 text-white p-2 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
-          <Camera className="h-4 w-4" />
-        </div>
       </div>
 
-      <div className="flex flex-col items-center gap-2 w-full">
+      {/* Upload Button */}
+      <div className="flex flex-col items-center gap-2">
         <Button
           type="button"
-          variant="default"
-          className="relative w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold"
-          disabled={uploading}
+          variant="outline"
+          size="sm"
+          onClick={handleClick}
+          disabled={isLoading}
+          className="gap-2"
         >
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            onChange={handleFileChange}
-            className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
-            disabled={uploading}
-          />
-          <Upload className="h-4 w-4 mr-2" />
-          {uploading ? "جاري التحميل..." : "اختر صورة جديدة"}
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              جاري الرفع...
+            </>
+          ) : (
+            <>
+              <Upload className="h-4 w-4" />
+              {preview ? "تغيير الصورة" : "رفع صورة"}
+            </>
+          )}
         </Button>
-        
-        {preview && preview !== currentImage && (
-          <p className="text-xs text-green-600 dark:text-green-400 font-medium">
-            ✓ صورة جديدة محددة - احفظ التغييرات
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+
+        {/* Info Text */}
+        <p className="text-xs text-gray-500 text-center">
+          PNG, JPG, GIF حتى 5MB
+        </p>
+
+        {/* Error Message */}
+        {error && (
+          <p className="text-xs text-red-500 text-center font-medium">
+            {error}
           </p>
         )}
-      </div>
-
-      <div className="text-center space-y-1">
-        <p className="text-xs text-muted-foreground">
-          الصيغ المدعومة: JPG, PNG, GIF, WEBP
-        </p>
-        <p className="text-xs text-muted-foreground">
-          الحد الأقصى: 5 ميجابايت
-        </p>
       </div>
     </div>
   );

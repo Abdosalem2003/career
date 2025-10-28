@@ -1,0 +1,105 @@
+/* Custom Quill Editor Styles */
+
+.ql-container {
+  font-family: 'Cairo', sans-serif;
+  font-size: 16px;
+  min-height: 400px;
+}
+
+.ql-editor {
+  min-height: 400px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.ql-editor.ql-blank::before {
+  color: #9ca3af;
+  font-style: normal;
+}
+
+/* Toolbar Styling */
+.ql-toolbar {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 8px 8px 0 0;
+}
+
+.ql-container {
+  border: 1px solid #e5e7eb !important;
+  border-radius: 0 0 8px 8px;
+}
+
+/* Dark Mode */
+.dark .ql-toolbar {
+  background: #1f2937;
+  border-color: #374151 !important;
+}
+
+.dark .ql-container {
+  background: #111827;
+  border-color: #374151 !important;
+  color: #f3f4f6;
+}
+
+.dark .ql-editor {
+  color: #f3f4f6;
+}
+
+.dark .ql-editor.ql-blank::before {
+  color: #6b7280;
+}
+
+/* Toolbar Buttons */
+.ql-toolbar button {
+  transition: all 0.2s;
+}
+
+.ql-toolbar button:hover {
+  background: #e5e7eb;
+  border-radius: 4px;
+}
+
+.dark .ql-toolbar button:hover {
+  background: #374151;
+}
+
+.ql-toolbar button.ql-active {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.dark .ql-toolbar button.ql-active {
+  background: #1e3a8a;
+  color: #93c5fd;
+}
+
+/* Scrollbar */
+.ql-editor::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ql-editor::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.ql-editor::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.ql-editor::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark .ql-editor::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.dark .ql-editor::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark .ql-editor::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
